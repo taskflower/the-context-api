@@ -27,9 +27,11 @@
     "@types/cors": "^2.8.17",
     "@types/express": "^5.0.0",
     "@types/node": "^22.10.5",
-    "@types/stopword": "^2.0.3",
     "@types/turndown": "^5.0.5",
     "ts-node-dev": "^2.0.0",
     "typescript": "^5.7.2"
+  },
+  "resolutions": {
+    "long": "5.2.3"
   }
 }
