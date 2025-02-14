@@ -1,107 +1,73 @@
 // src/services/openai/openai.config.ts
 import OpenAI from 'openai';
-import admin from '../../config/firebase-admin';
-import { v4 as uuidv4 } from 'uuid';
+import { UserService } from '../user/user.service';
 
 export interface ChatMessage {
-    role: 'system' | 'user' | 'assistant';
-    content: string;
+  role: 'system' | 'user' | 'assistant';
+  content: string;
 }
 
 export interface InitializeParams {
-    messages: ChatMessage[];
-    userId: string;
+  messages: ChatMessage[];
+  userId: string;
 }
 
 export interface ChatCompletionResult {
-    id: string;
-    status: 'completed' | 'failed' | 'in_progress';
-    response?: ChatMessage;
+  message: ChatMessage;
+  tokenUsage: number;
 }
 
 class OpenAIService {
-    private openai: OpenAI;
-    private db: FirebaseFirestore.Firestore;
+  private openai: OpenAI;
+  private userService: UserService;
+
+  constructor() {
+    this.openai = new OpenAI({
+      apiKey: process.env.OPENAI_API_KEY
+    });
+    this.userService = new UserService();
+  }
+
+  async getChatCompletion(params: InitializeParams): Promise<ChatCompletionResult> {
+    if (!params.messages?.length || !params.userId) {
+      throw new Error('Messages array and userId are required.');
+    }
+
+    // Check available tokens before making the request
+    const availableTokens = await this.userService.checkAvailableTokens(params.userId);
     
-    constructor() {
-        this.openai = new OpenAI({
-            apiKey: process.env.OPENAI_API_KEY
-        });
-        this.db = admin.firestore();
+    // Estimated limit - assuming maximum possible usage
+    const MAX_ESTIMATED_TOKENS = 4000; // Example value
+    
+    if (availableTokens < MAX_ESTIMATED_TOKENS) {
+      throw new Error('Insufficient available tokens');
     }
 
-    private async createDocument(
-        messages: ChatMessage[], 
-        userId: string
-    ): Promise<FirebaseFirestore.DocumentReference> {
-        const chatCollection = this.db.collection('chat_completions');
-        const documentRef = chatCollection.doc();
+    const completion = await this.openai.chat.completions.create({
+      model: "gpt-4-turbo-preview",
+      messages: params.messages,
+      temperature: 0.7,
+      max_tokens: 2000,
+    });
 
-        await documentRef.set({
-            messages,
-            userId,
-            timestamp: admin.firestore.Timestamp.now(),
-            status: 'in_progress',
-        });
+    // Get actual token usage
+    const tokenUsage = completion.usage?.total_tokens || 0;
 
-        return documentRef;
+    // Register token usage
+    const success = await this.userService.registerTokenUsage(params.userId, tokenUsage);
+    
+    if (!success) {
+      throw new Error('Failed to register token usage');
     }
 
-    private async saveError(params: InitializeParams, error: unknown): Promise<void> {
-        const errorRef = this.db.collection('chat_completions').doc(uuidv4());
-        await errorRef.set({
-            messages: params.messages,
-            userId: params.userId,
-            status: 'failed',
-            error: {
-                message: error instanceof Error ? error.message : 'Unknown error',
-                timestamp: admin.firestore.Timestamp.now(),
-            },
-        });
-    }
-
-    async getChatCompletion(params: InitializeParams): Promise<ChatCompletionResult> {
-        if (!params.messages?.length || !params.userId) {
-            throw new Error('Messages array and userId are required.');
-        }
-
-        try {
-            const documentRef = await this.createDocument(params.messages, params.userId);
-
-            const completion = await this.openai.chat.completions.create({
-                model: "gpt-4-turbo-preview",
-                messages: params.messages,
-                temperature: 0.7,
-                max_tokens: 2000,
-            });
-
-            const response: ChatMessage = {
-                role: 'assistant',
-                content: completion.choices[0].message.content || ''
-            };
-
-            await documentRef.set(
-                {
-                    response,
-                    status: 'completed',
-                    completedAt: admin.firestore.Timestamp.now(),
-                    usage: completion.usage,
-                },
-                { merge: true }
-            );
-
-            return {
-                id: documentRef.id,
-                status: 'completed',
-                response
-            };
-
-        } catch (error) {
-            console.error('Chat completion error:', error);
-            await this.saveError(params, error);
-            throw error;
-        }
-    }
+    return {
+      message: {
+        role: 'assistant',
+        content: completion.choices[0].message.content || ''
+      },
+      tokenUsage
+    };
+  }
 }
 
 export const openAIService = new OpenAIService();

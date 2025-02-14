@@ -1,42 +1,127 @@
 // src/index.ts
-import express from 'express'
-import helmet from 'helmet'
-import cors from 'cors'
-import serviceRoutes from './routes/services.routes'
-import authRoutes from './routes/auth.routes'
+import express from 'express';
+import helmet from 'helmet';
+import cors from 'cors';
+import compression from 'compression';
+import morgan from 'morgan';
 
-const app = express()
+// Middleware imports
+import { errorHandler } from './middleware/error.middleware';
+import { createRateLimiter } from './middleware/rate-limit.middleware';
 
-// Middleware
-app.use(helmet())
-app.use(cors())
-app.use(express.json())
-app.use(express.urlencoded({ extended: true }))
+// Route imports
+import serviceRoutes from './services/openai/openai.routes';
+import websiteAnalysisRoutes from './services/analyzeWebsite/analyzeWebsite.routes';
+import authRoutes from './services/auth/auth.routes';
+import { ApiError, ErrorCodes } from './errors/errors.utilsts';
 
-// Routes
-app.use('/api/v1/services', serviceRoutes)  // Wszystkie endpointy serwisów pod /services
-app.use('/api/v1/auth', authRoutes)         // Endpointy autoryzacji pod /auth
+// Initialize express
+const app = express();
 
-// Basic error handling
-app.use((err: Error, req: express.Request, res: express.Response, next: express.NextFunction) => {
-  console.error(err.stack)
-  res.status(500).json({
-    status: 'error',
-    message: 'Coś poszło nie tak!'
-  })
-})
+// Security middleware
+app.use(helmet());
+app.use(cors({
+  origin: process.env.CORS_ORIGIN || '*',
+  methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
+  allowedHeaders: ['Content-Type', 'Authorization']
+}));
 
-// 404 handling
-app.use((req: express.Request, res: express.Response) => {
-  res.status(404).json({
-    status: 'error',
-    message: 'Nie znaleziono endpointu'
-  })
-})
+// Global rate limiting
+app.use(createRateLimiter(15 * 60 * 1000, 100)); // 100 requests per 15 minutes
 
-const PORT = process.env.PORT || 3000
-app.listen(PORT, () => {
-  console.log(`🚀 Serwer działa na porcie ${PORT}`)
-})
+// More strict rate limiting for OpenAI routes
+app.use('/api/v1/services/chat', createRateLimiter(15 * 60 * 1000, 50)); // 50 requests per 15 minutes
 
-export default app
+// Request parsing middleware
+app.use(express.json({ 
+  limit: '10mb',
+  verify: (req, res, buf) => {
+    try {
+      JSON.parse(buf.toString());
+    } catch (e) {
+      throw new ApiError(400, 'Invalid JSON payload', ErrorCodes.INVALID_INPUT);
+    }
+  }
+}));
+
+app.use(express.urlencoded({ 
+  extended: true, 
+  limit: '10mb' 
+}));
+
+// Compression and logging
+app.use(compression());
+app.use(morgan('combined'));
+
+// Health check endpoint
+app.get('/health', (req, res) => {
+  res.json({
+    success: true,
+    data: {
+      status: 'healthy',
+      timestamp: new Date().toISOString(),
+      environment: process.env.NODE_ENV
+    }
+  });
+});
+
+// API Routes
+app.use('/api/v1/services', serviceRoutes);        // OpenAI service endpoints
+app.use('/api/v1/auth', authRoutes);              // Authentication endpoints
+app.use('/api/v1/services', websiteAnalysisRoutes);  // Website Analyzer service endpoints
+
+// 404 handler - must be before error handler
+app.use((req, res, next) => {
+  next(new ApiError(
+    404,
+    `Endpoint ${req.method} ${req.path} not found`,
+    ErrorCodes.NOT_FOUND
+  ));
+});
+
+// Global error handler - must be last
+app.use(errorHandler);
+
+// Server initialization
+const PORT = process.env.PORT || 3000;
+const NODE_ENV = process.env.NODE_ENV || 'development';
+
+// Graceful shutdown handler
+const gracefulShutdown = () => {
+  console.log('Received shutdown signal. Closing server...');
+  server.close(() => {
+    console.log('Server closed. Process terminating...');
+    process.exit(0);
+  });
+
+  // Force close after 10s
+  setTimeout(() => {
+    console.error('Could not close connections in time, forcefully shutting down');
+    process.exit(1);
+  }, 10000);
+};
+
+const server = app.listen(PORT, () => {
+  console.log(`
+🚀 Server started:
+   - Port: ${PORT}
+   - Environment: ${NODE_ENV}
+   - Time: ${new Date().toISOString()}
+  `);
+});
+
+// Shutdown handlers
+process.on('SIGTERM', gracefulShutdown);
+process.on('SIGINT', gracefulShutdown);
+
+// Unhandled rejection handler
+process.on('unhandledRejection', (reason: Error | any) => {
+  console.error('Unhandled Rejection:', reason);
+  
+  // Prevent server crash, but log the error
+  if (reason instanceof Error) {
+    console.error(reason.stack);
+  }
+});
+
+export default app;
