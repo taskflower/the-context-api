@@ -14,6 +14,7 @@ import { createRateLimiter } from './middleware/rate-limit.middleware';
 import serviceRoutes from './services/openai/openai.routes';
 import websiteAnalysisRoutes from './services/analyzeWebsite/analyzeWebsite.routes';
 import authRoutes from './services/auth/auth.routes';
+import stripeRoutes from './services/stripe/stripe.routes'; // DODANE
 import { ApiError, ErrorCodes } from './errors/errors.utilsts';
 
 // Initialize express
@@ -29,6 +30,9 @@ app.use(cors({
   methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
   allowedHeaders: ['Content-Type', 'Authorization']
 }));
+
+// Raw body parser for Stripe webhooks - DODANE
+app.use('/api/v1/stripe/webhook', express.raw({ type: 'application/json' }));
 
 // Global rate limiting
 app.use(createRateLimiter(15 * 60 * 1000, 100)); // 100 requests per 15 minutes
@@ -165,6 +169,7 @@ async function checkFirestoreStatus() {
 app.use('/api/v1/services', serviceRoutes);        // OpenAI service endpoints
 app.use('/api/v1/auth', authRoutes);              // Authentication endpoints
 app.use('/api/v1/services', websiteAnalysisRoutes);  // Website Analyzer service endpoints
+app.use('/api/v1/stripe', stripeRoutes);          // Stripe payment endpoints - DODANE
 
 // 404 handler - must be before error handler
 app.use((req, res, next) => {

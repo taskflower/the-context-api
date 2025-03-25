@@ -37,7 +37,7 @@ class OpenAIService {
     const availableTokens = await this.userService.checkAvailableTokens(params.userId);
     
     // Estimated limit - assuming maximum possible usage
-    const MAX_ESTIMATED_TOKENS = 4000; // Example value
+    const MAX_ESTIMATED_TOKENS = 200; // Example value
     
     if (availableTokens < MAX_ESTIMATED_TOKENS) {
       throw new Error('Insufficient available tokens');
