@@ -26,15 +26,35 @@ export const verifyToken = async (
     }
 
     const token = authHeader.split('Bearer ')[1];
-    const decodedToken = await admin.auth().verifyIdToken(token);
     
-    // Add or update user in the database
-    await userService.addOrUpdateUser(decodedToken);
-    
-    req.user = decodedToken;
-    next();
+    try {
+      const decodedToken = await admin.auth().verifyIdToken(token);
+      req.user = decodedToken;
+      
+      // Move user creation/update to a separate try-catch to prevent
+      // authentication failures when user db operations fail
+      try {
+        // Add or update user in the database
+        await userService.addOrUpdateUser(decodedToken);
+      } catch (userError) {
+        // Log the error but continue with the authenticated request
+        console.error('User update error during authentication:', userError);
+        // We don't reject the request here, just log the error
+      }
+      
+      next();
+    } catch (firebaseError) {
+      // This is specifically for token verification errors
+      console.error('Token verification error:', firebaseError);
+      throw new ApiError(
+        401,
+        'Invalid or expired token',
+        ErrorCodes.UNAUTHORIZED,
+        process.env.NODE_ENV === 'development' ? firebaseError : undefined
+      );
+    }
   } catch (error) {
-    console.error('Token verification error:', error);
+    console.error('Authentication error:', error);
     
     if (error instanceof ApiError) {
       next(error);
@@ -43,7 +63,7 @@ export const verifyToken = async (
 
     next(new ApiError(
       401,
-      'Invalid or expired token',
+      'Authentication failed',
       ErrorCodes.UNAUTHORIZED,
       process.env.NODE_ENV === 'development' ? error : undefined
     ));
