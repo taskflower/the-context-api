@@ -4,6 +4,7 @@ import helmet from 'helmet';
 import cors from 'cors';
 import compression from 'compression';
 import morgan from 'morgan';
+import * as admin from 'firebase-admin';
 
 // Middleware imports
 import { errorHandler } from './middleware/error.middleware';
@@ -17,6 +18,9 @@ import { ApiError, ErrorCodes } from './errors/errors.utilsts';
 
 // Initialize express
 const app = express();
+
+// App version
+const APP_VERSION = '1.0.1'; // Update this when you release new versions
 
 // Security middleware
 app.use(helmet());
@@ -53,6 +57,20 @@ app.use(express.urlencoded({
 app.use(compression());
 app.use(morgan('combined'));
 
+// Add homepage
+app.get('/', (req, res) => {
+  res.json({
+    success: true,
+    data: {
+      service: 'API Service',
+      version: APP_VERSION,
+      status: 'running',
+      environment: process.env.NODE_ENV || 'development',
+      timestamp: new Date().toISOString()
+    }
+  });
+});
+
 // Health check endpoint
 app.get('/health', (req, res) => {
   res.json({
@@ -64,6 +82,84 @@ app.get('/health', (req, res) => {
     }
   });
 });
+
+// Firebase status endpoint
+app.get('/status/firebase', async (req, res, next) => {
+  try {
+    // Check Firebase Auth connection
+    const authStatus = await checkFirebaseAuthStatus();
+    
+    // Check Firestore connection
+    const firestoreStatus = await checkFirestoreStatus();
+    
+    res.json({
+      success: true,
+      data: {
+        version: APP_VERSION,
+        firebase: {
+          auth: authStatus,
+          firestore: firestoreStatus,
+          sdkVersion: admin.SDK_VERSION,
+          appInitialized: admin.apps.length > 0
+        },
+        timestamp: new Date().toISOString()
+      }
+    });
+  } catch (error) {
+    next(new ApiError(
+      500,
+      'Error checking Firebase status',
+      ErrorCodes.SERVICE_UNAVAILABLE,
+      process.env.NODE_ENV === 'development' ? error : undefined
+    ));
+  }
+});
+
+// Check Firebase Auth status
+async function checkFirebaseAuthStatus() {
+  try {
+    // Try to list users (limit to 1) to verify Auth connection
+    await admin.auth().listUsers(1);
+    return { connected: true, error: null };
+  } catch (error) {
+    console.error('Firebase Auth connection error:', error);
+    return { 
+      connected: false, 
+      error: error instanceof Error ? error.message : 'Unknown error' 
+    };
+  }
+}
+
+// Check Firestore status
+async function checkFirestoreStatus() {
+  try {
+    // Try to get a document from Firestore to verify connection
+    const db = admin.firestore();
+    const timestamp = Date.now();
+    const docRef = db.collection('_health_checks').doc(`check-${timestamp}`);
+    
+    // Write a test document
+    await docRef.set({ timestamp });
+    
+    // Read the test document
+    const doc = await docRef.get();
+    
+    // Delete the test document
+    await docRef.delete();
+    
+    return { 
+      connected: true, 
+      documentExists: doc.exists,
+      error: null 
+    };
+  } catch (error) {
+    console.error('Firestore connection error:', error);
+    return { 
+      connected: false, 
+      error: error instanceof Error ? error.message : 'Unknown error' 
+    };
+  }
+}
 
 // API Routes
 app.use('/api/v1/services', serviceRoutes);        // OpenAI service endpoints
@@ -107,6 +203,7 @@ const server = app.listen(PORT, () => {
    - Port: ${PORT}
    - Environment: ${NODE_ENV}
    - Time: ${new Date().toISOString()}
+   - Version: ${APP_VERSION}
   `);
 });
 
