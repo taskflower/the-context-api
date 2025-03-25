@@ -4,7 +4,9 @@ import { db } from '../../config/firebase';
 import { User } from './user.types';
 
 export class UserService {
-  private readonly INITIAL_TOKEN_COUNT = 100;
+  // przyjmujemy cenę w naszym systemie jeden cent za 1000 tokenów
+  // nowemu userowi przyznajemy 0,5 kredytu
+  private readonly INITIAL_TOKEN_COUNT = 5000;
   private readonly usersCollection = db.collection('users');
 
   async addOrUpdateUser(decodedToken: admin.auth.DecodedIdToken): Promise<void> {
