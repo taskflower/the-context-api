@@ -14,7 +14,9 @@ import { createRateLimiter } from './middleware/rate-limit.middleware';
 import serviceRoutes from './services/openai/openai.routes';
 import websiteAnalysisRoutes from './services/analyzeWebsite/analyzeWebsite.routes';
 import authRoutes from './services/auth/auth.routes';
-import stripeRoutes from './services/stripe/stripe.routes'; // DODANE
+import stripeRoutes from './services/stripe/stripe.routes';
+import statusRoutes from './services/status/status.routes'; // NEW IMPORT
+import { setAppVersion } from './services/status/status.routes'; // NEW IMPORT
 import { ApiError, ErrorCodes } from './errors/errors.utilsts';
 
 // Initialize express
@@ -22,6 +24,8 @@ const app = express();
 
 // App version
 const APP_VERSION = '1.0.1'; // Update this when you release new versions
+// Set app version in status service
+setAppVersion(APP_VERSION); // NEW LINE
 
 // Security middleware
 app.use(helmet());
@@ -31,7 +35,7 @@ app.use(cors({
   allowedHeaders: ['Content-Type', 'Authorization']
 }));
 
-// Raw body parser for Stripe webhooks - DODANE
+// Raw body parser for Stripe webhooks
 app.use('/api/v1/stripe/webhook', express.raw({ type: 'application/json' }));
 
 // Global rate limiting
@@ -75,101 +79,12 @@ app.get('/', (req, res) => {
   });
 });
 
-// Health check endpoint
-app.get('/health', (req, res) => {
-  res.json({
-    success: true,
-    data: {
-      status: 'healthy',
-      timestamp: new Date().toISOString(),
-      environment: process.env.NODE_ENV
-    }
-  });
-});
-
-// Firebase status endpoint
-app.get('/status/firebase', async (req, res, next) => {
-  try {
-    // Check Firebase Auth connection
-    const authStatus = await checkFirebaseAuthStatus();
-    
-    // Check Firestore connection
-    const firestoreStatus = await checkFirestoreStatus();
-    
-    res.json({
-      success: true,
-      data: {
-        version: APP_VERSION,
-        firebase: {
-          auth: authStatus,
-          firestore: firestoreStatus,
-          sdkVersion: admin.SDK_VERSION,
-          appInitialized: admin.apps.length > 0
-        },
-        timestamp: new Date().toISOString()
-      }
-    });
-  } catch (error) {
-    next(new ApiError(
-      500,
-      'Error checking Firebase status',
-      ErrorCodes.SERVICE_UNAVAILABLE,
-      process.env.NODE_ENV === 'development' ? error : undefined
-    ));
-  }
-});
-
-// Check Firebase Auth status
-async function checkFirebaseAuthStatus() {
-  try {
-    // Try to list users (limit to 1) to verify Auth connection
-    await admin.auth().listUsers(1);
-    return { connected: true, error: null };
-  } catch (error) {
-    console.error('Firebase Auth connection error:', error);
-    return { 
-      connected: false, 
-      error: error instanceof Error ? error.message : 'Unknown error' 
-    };
-  }
-}
-
-// Check Firestore status
-async function checkFirestoreStatus() {
-  try {
-    // Try to get a document from Firestore to verify connection
-    const db = admin.firestore();
-    const timestamp = Date.now();
-    const docRef = db.collection('_health_checks').doc(`check-${timestamp}`);
-    
-    // Write a test document
-    await docRef.set({ timestamp });
-    
-    // Read the test document
-    const doc = await docRef.get();
-    
-    // Delete the test document
-    await docRef.delete();
-    
-    return { 
-      connected: true, 
-      documentExists: doc.exists,
-      error: null 
-    };
-  } catch (error) {
-    console.error('Firestore connection error:', error);
-    return { 
-      connected: false, 
-      error: error instanceof Error ? error.message : 'Unknown error' 
-    };
-  }
-}
-
 // API Routes
 app.use('/api/v1/services', serviceRoutes);        // OpenAI service endpoints
 app.use('/api/v1/auth', authRoutes);              // Authentication endpoints
 app.use('/api/v1/services', websiteAnalysisRoutes);  // Website Analyzer service endpoints
-app.use('/api/v1/stripe', stripeRoutes);          // Stripe payment endpoints - DODANE
+app.use('/api/v1/stripe', stripeRoutes);          // Stripe payment endpoints
+app.use('/api/v1/status', statusRoutes);          // Status endpoints - NEW LINE
 
 // 404 handler - must be before error handler
 app.use((req, res, next) => {

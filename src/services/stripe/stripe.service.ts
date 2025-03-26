@@ -77,6 +77,102 @@ export class StripeService {
     }
   }
 
+  async verifyPaymentSession(sessionId: string, userId: string): Promise<{
+    status: 'pending' | 'completed' | 'error';
+    tokenAmount?: number;
+    message?: string;
+  }> {
+    try {
+      // First check our database for the session
+      const sessionDoc = await db.collection("stripe_sessions").doc(sessionId).get();
+      
+      if (!sessionDoc.exists) {
+        return {
+          status: 'error',
+          message: 'Payment session not found'
+        };
+      }
+      
+      const sessionData = sessionDoc.data();
+      
+      // Verify this session belongs to the requesting user
+      if (sessionData?.userId !== userId) {
+        return {
+          status: 'error',
+          message: 'Unauthorized access to payment session'
+        };
+      }
+      
+      // If already completed in our database, return success
+      if (sessionData?.status === 'completed') {
+        return {
+          status: 'completed',
+          tokenAmount: sessionData.tokenAmount
+        };
+      }
+      
+      // If still pending, check with Stripe directly
+      if (sessionData?.status === 'pending') {
+        try {
+          const stripeSession = await this.stripe.checkout.sessions.retrieve(sessionId);
+          
+          // If paid according to Stripe but our webhook hasn't processed yet
+          if (stripeSession.payment_status === 'paid') {
+            // Manually process the payment
+            const tokenAmount = Number(sessionData.tokenAmount);
+            
+            // Update user tokens
+            await this.addTokensToUser(userId, tokenAmount);
+            
+            // Update session status
+            await db.collection("stripe_sessions").doc(sessionId).update({
+              status: 'completed',
+              processedAt: new Date(),
+              webhookProcessed: false, // Flag that this wasn't processed by webhook
+              manuallyVerified: true
+            });
+            
+            // Add to purchase history
+            await db.collection("token_purchases").add({
+              userId,
+              tokenAmount,
+              amountPaid: (stripeSession.amount_total || 0) / 100,
+              stripeSessionId: sessionId,
+              purchaseDate: new Date(),
+              manuallyVerified: true
+            });
+            
+            return {
+              status: 'completed',
+              tokenAmount
+            };
+          }
+          
+          // Still pending at Stripe too
+          return {
+            status: 'pending',
+            message: 'Payment is still processing'
+          };
+        } catch (stripeError) {
+          console.error('Error verifying with Stripe:', stripeError);
+          return {
+            status: 'error',
+            message: 'Error verifying payment with Stripe'
+          };
+        }
+      }
+      
+      // Unknown status
+      return {
+        status: 'error',
+        message: `Unknown payment status: ${sessionData?.status}`
+      };
+    } catch (error) {
+      console.error('Payment verification error:', error);
+      throw error;
+    }
+  }
+
   async handleWebhook(signature: string, payload: Buffer): Promise<void> {
     try {
       // Verify webhook signature

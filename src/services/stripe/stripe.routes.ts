@@ -51,6 +51,42 @@ router.post('/create-checkout-session',
   })
 );
 
+// Verify payment session status
+router.get('/verify-session/:sessionId', 
+  verifyToken,
+  asyncHandler(async (req: AuthRequest, res: Response, next: NextFunction) => {
+    try {
+      const { sessionId } = req.params;
+      const userId = req.user?.uid;
+
+      if (!userId) {
+        throw new ApiError(
+          401,
+          'User authentication required',
+          ErrorCodes.UNAUTHORIZED
+        );
+      }
+
+      if (!sessionId) {
+        throw new ApiError(
+          400,
+          'Session ID is required',
+          ErrorCodes.INVALID_INPUT
+        );
+      }
+
+      const sessionStatus = await stripeService.verifyPaymentSession(sessionId, userId);
+
+      res.status(200).json({
+        success: true,
+        data: sessionStatus
+      });
+    } catch (error) {
+      next(error);
+    }
+  })
+);
+
 // Stripe webhook handler - doesn't use verifyToken as it's called by Stripe
 router.post('/webhook', 
   asyncHandler(async (req: Request, res: Response, next: NextFunction) => {
@@ -76,6 +112,16 @@ router.post('/webhook',
       // Don't expose error details to Stripe
       res.status(400).json({ received: false });
     }
+  })
+);
+
+// Add GET endpoint for webhook testing/verification
+router.get('/webhook',
+  asyncHandler(async (req: Request, res: Response) => {
+    res.status(200).json({
+      success: true,
+      message: 'Stripe webhook endpoint is active. Please use POST method for actual webhook events.'
+    });
   })
 );
 
