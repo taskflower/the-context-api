@@ -11,8 +11,17 @@ export class ResponseFormatter {
   static formatResponse(res: Response, data: any) {
     const markdown = this.convertToMarkdown(data);
     res.json({
-      role: "assistant",
-      content: markdown
+      success: true,
+      data: {
+        message: {
+          role: "assistant",
+          content: markdown
+        },
+        tokenUsage: {
+          cost: res.locals.tokenCost || 0,
+          remaining: res.locals.remainingTokens || 8000
+        }
+      }
     });
   }
 
