@@ -47,7 +47,7 @@ class OpenAIService {
       model: "gpt-4-turbo-preview",
       messages: params.messages,
       temperature: 0.7,
-      max_tokens: 2000,
+      max_tokens: 4096,
     });
 
     // Get actual token usage

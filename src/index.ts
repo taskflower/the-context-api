@@ -12,20 +12,17 @@ import { createRateLimiter } from './middleware/rate-limit.middleware';
 
 // Route imports
 import serviceRoutes from './services/openai/openai.routes';
+import geminiRoutes from './services/gemini/gemini.routes'; // NEW IMPORT
 import websiteAnalysisRoutes from './services/analyzeWebsite/analyzeWebsite.routes';
 import authRoutes from './services/auth/auth.routes';
 import stripeRoutes from './services/stripe/stripe.routes';
-import statusRoutes from './services/status/status.routes'; // NEW IMPORT
-import { setAppVersion } from './services/status/status.routes'; // NEW IMPORT
+import statusRoutes from './services/status/status.routes';
+import { setAppVersion } from './services/status/status.routes';
 import { ApiError, ErrorCodes } from './errors/errors.utilsts';
 
-// Initialize express
 const app = express();
-
-// App version
-const APP_VERSION = '1.0.1'; // Update this when you release new versions
-// Set app version in status service
-setAppVersion(APP_VERSION); // NEW LINE
+const APP_VERSION = '1.0.1'; 
+setAppVersion(APP_VERSION); 
 
 // Security middleware
 app.use(helmet());
@@ -35,14 +32,10 @@ app.use(cors({
   allowedHeaders: ['Content-Type', 'Authorization']
 }));
 
-// Raw body parser for Stripe webhooks
 app.use('/api/v1/stripe/webhook', express.raw({ type: 'application/json' }));
-
-// Global rate limiting
 app.use(createRateLimiter(15 * 60 * 1000, 100)); // 100 requests per 15 minutes
-
-// More strict rate limiting for OpenAI routes
 app.use('/api/v1/services/chat', createRateLimiter(15 * 60 * 1000, 50)); // 50 requests per 15 minutes
+app.use('/api/v1/services/gemini', createRateLimiter(15 * 60 * 1000, 50)); // 50 requests per 15 minutes for Gemini
 
 // Request parsing middleware
 app.use(express.json({ 
@@ -80,11 +73,12 @@ app.get('/', (req, res) => {
 });
 
 // API Routes
-app.use('/api/v1/services', serviceRoutes);        // OpenAI service endpoints
-app.use('/api/v1/auth', authRoutes);              // Authentication endpoints
-app.use('/api/v1/services', websiteAnalysisRoutes);  // Website Analyzer service endpoints
-app.use('/api/v1/stripe', stripeRoutes);          // Stripe payment endpoints
-app.use('/api/v1/status', statusRoutes);          // Status endpoints - NEW LINE
+app.use('/api/v1/services', serviceRoutes);
+app.use('/api/v1/services/gemini', geminiRoutes); // NEW ROUTE
+app.use('/api/v1/auth', authRoutes);
+app.use('/api/v1/services', websiteAnalysisRoutes);
+app.use('/api/v1/stripe', stripeRoutes);
+app.use('/api/v1/status', statusRoutes);
 
 // 404 handler - must be before error handler
 app.use((req, res, next) => {
