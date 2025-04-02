@@ -21,7 +21,7 @@ import { setAppVersion } from './services/status/status.routes';
 import { ApiError, ErrorCodes } from './errors/errors.utilsts';
 
 const app = express();
-const APP_VERSION = '1.0.1'; 
+const APP_VERSION = '1.0.7'; 
 setAppVersion(APP_VERSION); 
 
 // Security middleware
