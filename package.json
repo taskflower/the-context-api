@@ -20,6 +20,7 @@
     "express-rate-limit": "^7.5.0",
     "fabrice-ai": "^0.5.2",
     "firebase-admin": "^13.0.2",
+    "google-ads-api": "^19.0.2-rest-beta",
     "helmet": "^8.0.0",
     "morgan": "^1.10.0",
     "natural": "^8.0.1",
