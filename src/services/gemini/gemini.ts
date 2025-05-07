@@ -1,81 +1,105 @@
 // src/services/gemini/gemini.ts
-import { Response, NextFunction } from 'express';
-import { AuthRequest } from '../../middleware/auth.middleware';
-import { geminiService, ChatMessage } from './gemini.config';
-import { ApiError, ErrorCodes } from '../../errors/errors.utilsts';
+import { Response, NextFunction } from "express";
+import { AuthRequest } from "../../middleware/auth.middleware";
+import { geminiService, ChatMessage } from "./gemini.config";
+import { ApiError, ErrorCodes } from "../../errors/errors.utilsts";
 
 export async function handleChatCompletion(
-    req: AuthRequest, 
-    res: Response, 
-    next: NextFunction
+  req: AuthRequest,
+  res: Response,
+  next: NextFunction
 ): Promise<void> {
-    try {
-        const { messages } = req.body;
-        const userId = req.user?.uid;
+  try {
+    const { messages } = req.body;
+    const userId = req.user?.uid;
 
-        if (!Array.isArray(messages) || messages.length === 0) {
-            return next(new ApiError(
-                400,
-                'Messages array is required and must not be empty.',
-                ErrorCodes.INVALID_INPUT
-            ));
-        }
-
-        if (!userId) {
-            return next(new ApiError(
-                401,
-                'User authentication required.',
-                ErrorCodes.UNAUTHORIZED
-            ));
-        }
-
-        // Validate message format
-        const isValidMessageFormat = messages.every((msg: any) => 
-            typeof msg === 'object' &&
-            ['system', 'user', 'assistant'].includes(msg.role) &&
-            typeof msg.content === 'string'
-        );
-
-        if (!isValidMessageFormat) {
-            return next(new ApiError(
-                400,
-                'Invalid message format. Each message must have a valid role and content.',
-                ErrorCodes.INVALID_INPUT
-            ));
-        }
-
-        const result = await geminiService.getChatCompletion({ 
-            messages: messages as ChatMessage[], 
-            userId 
-        });
-
-        res.status(200).json({
-            success: true,
-            data: {
-                message: result.message,
-                tokenUsage: result.tokenUsage
-            }
-        });
-    } catch (error) {
-        console.error('Chat completion error:', error);
-        
-        if (error instanceof Error && error.message === 'Insufficient available tokens') {
-            return next(new ApiError(
-                403,
-                'Insufficient tokens to perform the operation',
-                ErrorCodes.INSUFFICIENT_TOKENS
-            ));
-        }
-
-        if (error instanceof ApiError) {
-            return next(error);
-        }
-
-        return next(new ApiError(
-            500,
-            'Gemini Service Error',
-            ErrorCodes.INTERNAL_ERROR,
-            error instanceof Error ? error.message : 'Unknown error occurred'
-        ));
+    if (!Array.isArray(messages) || messages.length === 0) {
+      return next(
+        new ApiError(
+          400,
+          "Messages array is required and must not be empty.",
+          ErrorCodes.INVALID_INPUT
+        )
+      );
     }
+
+    if (!userId) {
+      return next(
+        new ApiError(
+          401,
+          "User authentication required.",
+          ErrorCodes.UNAUTHORIZED
+        )
+      );
+    }
+
+    // Validate message format
+    const isValidMessageFormat = messages.every(
+      (msg: any) =>
+        typeof msg === "object" &&
+        ["system", "user", "assistant"].includes(msg.role) &&
+        typeof msg.content === "string"
+    );
+
+    if (!isValidMessageFormat) {
+      return next(
+        new ApiError(
+          400,
+          "Invalid message format. Each message must have a valid role and content.",
+          ErrorCodes.INVALID_INPUT
+        )
+      );
+    }
+
+    const result = await geminiService.getChatCompletion({
+      messages: messages as ChatMessage[],
+      userId,
+      generationConfig: {
+        temperature: 0.5,
+        // topP: 0.95,
+        // topK: 40,
+        maxOutputTokens: 1024,
+        response_mime_type: "application/json",
+      },
+    });
+
+    console.log(messages);
+    
+
+    res.status(200).json({
+      success: true,
+      data: {
+        message: result.message,
+        tokenUsage: result.tokenUsage,
+      },
+    });
+  } catch (error) {
+    console.error("Chat completion error:", error);
+
+    if (
+      error instanceof Error &&
+      error.message === "Insufficient available tokens"
+    ) {
+      return next(
+        new ApiError(
+          403,
+          "Insufficient tokens to perform the operation",
+          ErrorCodes.INSUFFICIENT_TOKENS
+        )
+      );
+    }
+
+    if (error instanceof ApiError) {
+      return next(error);
+    }
+
+    return next(
+      new ApiError(
+        500,
+        "Gemini Service Error",
+        ErrorCodes.INTERNAL_ERROR,
+        error instanceof Error ? error.message : "Unknown error occurred"
+      )
+    );
+  }
 }

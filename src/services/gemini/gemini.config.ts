@@ -10,8 +10,14 @@ export interface ChatMessage {
 export interface InitializeParams {
   messages: ChatMessage[];
   userId: string;
+  generationConfig?: {
+    temperature?: number;
+    topP?: number;
+    topK?: number;
+    maxOutputTokens?: number;
+    response_mime_type?: string;
+  };
 }
-
 export interface ChatCompletionResult {
   message: ChatMessage;
   tokenUsage: number; // Note: Gemini might not provide exact token counts like OpenAI
@@ -48,8 +54,11 @@ class GeminiService {
     const chat = this.model.startChat({
       history: this.convertToGeminiHistory(params.messages),
       generationConfig: {
-        temperature: 0.7,
-        maxOutputTokens: 4096,
+        temperature: params.generationConfig?.temperature ?? 0.5,
+        maxOutputTokens: params.generationConfig?.maxOutputTokens ?? 4096,
+        topP: params.generationConfig?.topP,
+        topK: params.generationConfig?.topK,
+        responseMimeType: params.generationConfig?.response_mime_type
       },
     });
 
