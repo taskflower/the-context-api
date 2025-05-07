@@ -1,4 +1,5 @@
 // src/services/gemini/gemini.config.ts
+import { enhanceMessagesWithSchemaInstructions } from './schema-instruction';
 import { GoogleGenerativeAI, GenerativeModel } from '@google/generative-ai';
 import { UserService } from '../user/user.service';
 
@@ -16,11 +17,14 @@ export interface InitializeParams {
     topK?: number;
     maxOutputTokens?: number;
     response_mime_type?: string;
+    responseSchema?: any; // Schema support
   };
 }
+
 export interface ChatCompletionResult {
   message: ChatMessage;
-  tokenUsage: number; // Note: Gemini might not provide exact token counts like OpenAI
+  result?: any; // Parsed result for JSON responses
+  tokenUsage: number;
 }
 
 class GeminiService {
@@ -30,7 +34,6 @@ class GeminiService {
 
   constructor() {
     this.genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY || '');
-    // Using the free Gemini model
     this.model = this.genAI.getGenerativeModel({ model: "gemini-2.0-flash" });
     this.userService = new UserService();
   }
@@ -40,38 +43,46 @@ class GeminiService {
       throw new Error('Messages array and userId are required.');
     }
 
-    // Check available tokens before making the request
+    // Check available tokens
     const availableTokens = await this.userService.checkAvailableTokens(params.userId);
-    
-    // Estimated limit - assuming maximum possible usage
-    const MAX_ESTIMATED_TOKENS = 200; // Example value
+    const MAX_ESTIMATED_TOKENS = 200;
     
     if (availableTokens < MAX_ESTIMATED_TOKENS) {
       throw new Error('Insufficient available tokens');
     }
 
-    // Convert OpenAI-style messages to Gemini format
+    // Zastosuj generator instrukcji oparty o schemat
+    let processedMessages = [...params.messages];
+    if (params.generationConfig?.responseSchema) {
+      processedMessages = enhanceMessagesWithSchemaInstructions(
+        processedMessages, 
+        params.generationConfig.responseSchema
+      );
+      
+      console.log('Enhanced messages with schema instructions');
+    }
+
+    // Convert messages to Gemini format
     const chat = this.model.startChat({
-      history: this.convertToGeminiHistory(params.messages),
+      history: this.convertToGeminiHistory(processedMessages),
       generationConfig: {
-        temperature: params.generationConfig?.temperature ?? 0.5,
+        temperature: params.generationConfig?.temperature ?? 0.7,
         maxOutputTokens: params.generationConfig?.maxOutputTokens ?? 4096,
         topP: params.generationConfig?.topP,
         topK: params.generationConfig?.topK,
-        responseMimeType: params.generationConfig?.response_mime_type
+        responseMimeType: params.generationConfig?.responseSchema ? 'application/json' : undefined
       },
     });
 
     // Generate response
-    const result = await chat.sendMessage(this.getLastUserMessage(params.messages));
+    const result = await chat.sendMessage(this.getLastUserMessage(processedMessages));
     const responseText = result.response.text();
 
-    // Estimate token usage (Note: Gemini API doesn't provide exact token counts)
-    // We're using a rough estimate based on characters
+    // Estimate token usage
     const estimatedTokens = Math.ceil((
-      params.messages.reduce((acc, msg) => acc + msg.content.length, 0) + 
+      processedMessages.reduce((acc, msg) => acc + msg.content.length, 0) + 
       responseText.length
-    ) / 4); // Rough estimate: ~4 chars per token
+    ) / 4);
 
     // Register token usage
     const success = await this.userService.registerTokenUsage(params.userId, estimatedTokens);
@@ -80,27 +91,67 @@ class GeminiService {
       throw new Error('Failed to register token usage');
     }
 
+    // Handle JSON parsing for structured responses
+    let parsedResult: any = null;
+    if (params.generationConfig?.responseSchema) {
+      try {
+        // Clean the response text to handle potential formatting issues
+        const cleanedJson = this.cleanJsonResponse(responseText);
+        parsedResult = JSON.parse(cleanedJson);
+        console.log('Successfully parsed JSON response', { parsed: true });
+      } catch (error) {
+        console.error('Error parsing JSON response:', error);
+        throw new Error('Failed to parse LLM response as JSON');
+      }
+    }
+
     return {
       message: {
         role: 'assistant',
         content: responseText
       },
+      result: parsedResult,
       tokenUsage: estimatedTokens
     };
   }
 
-  private convertToGeminiHistory(messages: ChatMessage[]) {
-    // Filter out system messages as Gemini handles them differently
-    // For simplicity, we're ignoring system messages in this implementation
-    const conversationHistory: {role: 'user' | 'model', parts: {text: string}[]}[] = [];
+  // Clean up potential issues in JSON response
+  private cleanJsonResponse(text: string): string {
+    // Remove markdown code fences if present
+    let cleaned = text.replace(/^```json\s*/, '').replace(/\s*```$/, '');
     
+    // Remove any explanatory text before or after JSON
+    const jsonStart = cleaned.indexOf('{');
+    const jsonEnd = cleaned.lastIndexOf('}');
+    
+    if (jsonStart >= 0 && jsonEnd >= 0) {
+      cleaned = cleaned.substring(jsonStart, jsonEnd + 1);
+    }
+    
+    return cleaned;
+  }
+
+  private convertToGeminiHistory(messages: ChatMessage[]) {
+    const conversationHistory: {role: 'user' | 'model', parts: {text: string}[]}[] = [];
+    let systemPrompts: string[] = [];
+    
+    // Collect system messages for inclusion in first user message
     for (const message of messages) {
-      if (message.role === 'system') continue;
+      if (message.role === 'system') {
+        systemPrompts.push(message.content);
+        continue;
+      }
       
       conversationHistory.push({
         role: message.role === 'user' ? 'user' : 'model',
         parts: [{ text: message.content }]
       });
+    }
+    
+    // If we have system prompts and a user message, prepend system prompts to the first user message
+    if (systemPrompts.length > 0 && conversationHistory.length > 0 && conversationHistory[0].role === 'user') {
+      const combinedContent = `${systemPrompts.join('\n\n')}\n\n${conversationHistory[0].parts[0].text}`;
+      conversationHistory[0].parts[0].text = combinedContent;
     }
     
     // Remove the last user message as it will be sent separately
