@@ -113,7 +113,7 @@ const asyncHandler = (fn: Function) => {
 };
 
 // Create a test campaign - nie wymaga podania customerId ani refreshToken
-router.post('/create-test-campaign',
+router.post('/create-campaign',
   verifyToken,
   asyncHandler(async (req: AuthRequest, res: Response, next: NextFunction) => {
     try {

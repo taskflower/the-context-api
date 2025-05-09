@@ -12,7 +12,7 @@ import { createRateLimiter } from "./middleware/rate-limit.middleware";
 // Route imports
 import serviceRoutes from "./services/openai/openai.routes";
 import geminiRoutes from "./services/gemini/gemini.routes";
-import googleAdsRoutes from "./services/googleads/googleads.routes"; // NEW IMPORT FOR GOOGLE ADS
+import googleAdsRoutes from "./services/googleads/googleads.routes";
 import websiteAnalysisRoutes from "./services/analyzeWebsite/analyzeWebsite.routes";
 import authRoutes from "./services/auth/auth.routes";
 import stripeRoutes from "./services/stripe/stripe.routes";
@@ -40,12 +40,6 @@ app.use(
 );
 
 app.use("/api/v1/stripe/webhook", express.raw({ type: "application/json" }));
-app.use(createRateLimiter(15 * 60 * 1000, 100)); // 100 requests per 15 minutes
-app.use("/api/v1/services/oai", createRateLimiter(15 * 60 * 1000, 50)); // 50 requests per 15 minutes
-app.use("/api/v1/services/gemini", createRateLimiter(15 * 60 * 1000, 50)); // 50 requests per 15 minutes for Gemini
-app.use("/api/v1/services/googleads", createRateLimiter(15 * 60 * 1000, 50)); // 50 requests per 15 minutes for Google Ads
-app.use("/api/v1/google-oauth", googleOauthRoutes);
-app.use("/api/debug/googleads", googleAdsDebugRouter);
 
 // Request parsing middleware
 app.use(
@@ -90,15 +84,23 @@ app.get("/", (req, res) => {
   });
 });
 
+// Rate limiters - MOVED AFTER JSON PARSING
+app.use(createRateLimiter(15 * 60 * 1000, 100)); // 100 requests per 15 minutes
+app.use("/api/v1/services/oai", createRateLimiter(15 * 60 * 1000, 50));
+app.use("/api/v1/services/gemini", createRateLimiter(15 * 60 * 1000, 50));
+app.use("/api/v1/services/googleads", createRateLimiter(15 * 60 * 1000, 50));
+
 // API Routes
 app.use("/api/v1/services", serviceRoutes);
 app.use("/api/v1/auth", authRoutes);
 app.use("/api/v1/services", websiteAnalysisRoutes);
 app.use("/api/v1/services/gemini", geminiRoutes);
-app.use("/api/v1/services/googleads", googleAdsRoutes); // NEW ROUTE FOR GOOGLE ADS
+app.use("/api/v1/services/googleads", googleAdsRoutes);
 app.use("/api/v1/stripe", stripeRoutes);
 app.use("/api/v1/status", statusRoutes);
 app.use('/api/v1/appConfig', appConfigRoutes);
+app.use("/api/v1/google-oauth", googleOauthRoutes); // MOVED FROM ABOVE
+app.use("/api/debug/googleads", googleAdsDebugRouter); // MOVED FROM ABOVE
 
 // 404 handler - must be before error handler
 app.use((req, res, next) => {
