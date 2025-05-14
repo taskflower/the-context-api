@@ -22,8 +22,6 @@ import appConfigRoutes from "./services/appConfig/appConfig.routes";
 import { setAppVersion } from "./services/status/status.routes";
 import { ApiError, ErrorCodes } from "./errors/errors.utilsts";
 
-import googleAdsDebugRouter from "./services/googleads/googleads.debug";
-
 const app = express();
 const APP_VERSION = "1.0.8";
 
@@ -100,7 +98,7 @@ app.use("/api/v1/stripe", stripeRoutes);
 app.use("/api/v1/status", statusRoutes);
 app.use('/api/v1/appConfig', appConfigRoutes);
 app.use("/api/v1/google-oauth", googleOauthRoutes); // MOVED FROM ABOVE
-app.use("/api/debug/googleads", googleAdsDebugRouter); // MOVED FROM ABOVE
+
 
 // 404 handler - must be before error handler
 app.use((req, res, next) => {

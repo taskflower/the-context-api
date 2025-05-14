@@ -1,221 +1,99 @@
 // src/services/googleads/googleads.service.ts
-import { ApiError, ErrorCodes } from '../../errors/errors.utilsts';
-import { GoogleAdsApi } from 'google-ads-api';
+import { CustomerService } from './customer.service';
+import { BiddingStrategyService } from './bidding-strategy.service';
+import { CampaignBudgetService } from './campaign-budget.service';
+import { CampaignService } from './campaign.service';
+import { AdGroupService } from './ad-group.service';
+import { CommonOptions } from './customer.types';
+import { CreateBiddingStrategyData } from './bidding-strategy.types';
+import { CampaignBudgetData } from './campaign-budget.types';
+import { CampaignData } from './campaign.types';
+import { AdGroupData } from './ad-group.types';
+
 
 export class GoogleAdsService {
-  private googleAdsApi: GoogleAdsApi;
-  public defaultRefreshToken: string;
-  public defaultCustomerId: string;
-
+  private customerService: CustomerService;
+  private biddingStrategyService: BiddingStrategyService;
+  private campaignBudgetService: CampaignBudgetService;
+  private campaignService: CampaignService;
+  private adGroupService: AdGroupService;
+  
   constructor() {
-    // Upewnij się, że zmienne środowiskowe są poprawnie ustawione
-    if (!process.env.GOOGLE_ADS_CLIENT_ID || 
-        !process.env.GOOGLE_ADS_CLIENT_SECRET || 
-        !process.env.GOOGLE_ADS_DEVELOPER_TOKEN || 
-        !process.env.GOOGLE_ADS_REFRESH_TOKEN || 
-        !process.env.GOOGLE_ADS_CUSTOMER_ID) {
-      console.error('Brakujące wymagane zmienne środowiskowe Google Ads');
-    }
-
-    this.defaultRefreshToken = process.env.GOOGLE_ADS_REFRESH_TOKEN || '';
-    this.defaultCustomerId = process.env.GOOGLE_ADS_CUSTOMER_ID || '';
-
-    // Inicjalizacja Google Ads API
-    this.googleAdsApi = new GoogleAdsApi({
-      client_id: process.env.GOOGLE_ADS_CLIENT_ID || '',
-      client_secret: process.env.GOOGLE_ADS_CLIENT_SECRET || '',
-      developer_token: process.env.GOOGLE_ADS_DEVELOPER_TOKEN || ''
-    });
+    this.customerService = new CustomerService(
+      process.env.GOOGLE_ADS_CLIENT_ID || '',
+      process.env.GOOGLE_ADS_CLIENT_SECRET || '',
+      process.env.GOOGLE_ADS_DEVELOPER_TOKEN || ''
+    );
+    
+    this.biddingStrategyService = new BiddingStrategyService(this.customerService);
+    this.campaignBudgetService = new CampaignBudgetService(this.customerService);
+    this.campaignService = new CampaignService(this.customerService);
+    this.adGroupService = new AdGroupService(this.customerService);
   }
 
-  /**
-   * Pobierz klienckiego klienta dla Google Ads API używając domyślnych wartości
-   */
-  getCustomerClient() {
-    try {
-      // Zabezpieczenie przed brakiem danych
-      if (!this.defaultCustomerId || !this.defaultRefreshToken) {
-        throw new Error('Brak wymaganych poświadczeń Google Ads');
-      }
-
-      return this.googleAdsApi.Customer({
-        customer_id: this.defaultCustomerId,
-        refresh_token: this.defaultRefreshToken,
-        login_customer_id: this.defaultCustomerId // Często pomaga przy błędach autoryzacji
-      });
-    } catch (error) {
-      console.error('Błąd podczas tworzenia klienta Google Ads:', error);
-      throw error;
-    }
+  // Funkcje pomocnicze
+  async checkAccess(refreshToken: string) {
+    return this.customerService.checkAccess(refreshToken);
   }
 
-  /**
-   * Sprawdza dostępne konta klienta (przydatne do weryfikacji poświadczeń)
-   */
-  async checkAccess() {
-    try {
-      // Ta metoda nie wymaga customer_id, więc może być użyta do weryfikacji
-      const accessibleCustomers = await this.googleAdsApi.listAccessibleCustomers(
-        this.defaultRefreshToken
-      );
-      return accessibleCustomers;
-    } catch (error: any) {
-      console.error('Błąd podczas sprawdzania dostępu do Google Ads:', error);
-      throw new ApiError(
-        500,
-        `Błąd autoryzacji Google Ads: ${error.message || 'Nieznany błąd'}`,
-        ErrorCodes.EXTERNAL_API_ERROR,
-        error
-      );
-    }
+  validateEnvVars() {
+    const missingVars = {
+      ...this.customerService.validateEnvVars().missingVars,
+      refreshToken: !process.env.GOOGLE_ADS_REFRESH_TOKEN,
+      customerId: !process.env.GOOGLE_ADS_CUSTOMER_ID
+    };
+    
+    const hasMissing = Object.values(missingVars).some(missing => missing);
+    return { hasMissing, missingVars };
   }
 
-  /**
-   * Utwórz testową kampanię w Google Ads
-   */
-  async createTestCampaign(campaignName?: string) {
-    try {
-      // Użyj domyślnej nazwy kampanii, jeśli nie została podana
-      const name = campaignName || `Testowa kampania ${new Date().toISOString().split('T')[0]}`;
-      
-      const customer = this.getCustomerClient();
-      
-      // Utwórz budżet kampanii
-      const budgetResponse = await customer.campaignBudgets.create([{
-        name: `${name} Budget`,
-        amount_micros: 500000000, // 500 USD
-        delivery_method: 'STANDARD',
-      }]);
-      
-      const budget = budgetResponse.results?.[0]?.resource_name;
-      
-      if (!budget) {
-        throw new Error('Nie udało się utworzyć budżetu kampanii');
-      }
-      
-      // Utwórz kampanię
-      const campaignResponse = await customer.campaigns.create([{
-        name: name,
-        campaign_budget: budget,
-        advertising_channel_type: 'SEARCH',
-        status: 'PAUSED', // Zawsze twórz jako PAUSED dla bezpieczeństwa
-        start_date: new Date().toISOString().slice(0,10).replace(/-/g, ''),
-      }]);
-      
-      const campaign = campaignResponse.results?.[0]?.resource_name;
-      
-      if (!campaign) {
-        throw new Error('Nie udało się utworzyć kampanii');
-      }
-      
-      // Utwórz grupę reklam
-      const adGroupResponse = await customer.adGroups.create([{
-        campaign,
-        name: `${name} AdGroup`,
-        type: 'SEARCH_STANDARD',
-        status: 'PAUSED',
-      }]);
-      
-      const adGroup = adGroupResponse.results?.[0]?.resource_name;
-      
-      if (!adGroup) {
-        throw new Error('Nie udało się utworzyć grupy reklam');
-      }
-      
-      // Utwórz reklamę tekstową rozszerzoną
-      const adResponse = await customer.adGroupAds.create([{
-        ad_group: adGroup,
-        ad: {
-          final_urls: ['http://example.com'],
-          expanded_text_ad: {
-            headline_part1: `${name} Headline`,
-            headline_part2: 'API Test',
-            description: 'Testowanie integracji Google Ads API',
-          },
-        },
-        status: 'PAUSED',
-      }]);
-      
-      const ad = adResponse.results?.[0]?.resource_name;
-      
-      if (!ad) {
-        throw new Error('Nie udało się utworzyć reklamy');
-      }
-      
-      return {
-        budget,
-        campaign,
-        adGroup,
-        ad
-      };
-    } catch (error: any) {
-      console.error('Google Ads API error:', error);
-      throw new ApiError(
-        500,
-        `Nie udało się utworzyć kampanii testowej: ${error.message || 'Nieznany błąd'}`,
-        ErrorCodes.EXTERNAL_API_ERROR,
-        error
-      );
-    }
+  // Funkcje dla strategii licytacji
+  async getBiddingStrategies(refreshToken: string, customerId: string, loginCustomerId?: string) {
+    const options: CommonOptions = { refreshToken, customerId, loginCustomerId };
+    return this.biddingStrategyService.getBiddingStrategies(options);
   }
 
-  /**
-   * Pobierz listę kampanii dla klienta
-   */
-  async getCampaigns() {
-    try {
-      const customer = this.getCustomerClient();
-      
-      // Użyj search zamiast list
-      const campaigns = await customer.query(`
-        SELECT
-          campaign.id,
-          campaign.name,
-          campaign.status,
-          campaign.advertising_channel_type
-        FROM campaign
-        ORDER BY campaign.id
-      `);
-      
-      return campaigns;
-    } catch (error: any) {
-      console.error('Google Ads API error:', error);
-      throw new ApiError(
-        500,
-        `Nie udało się pobrać kampanii: ${error.message || 'Nieznany błąd'}`,
-        ErrorCodes.EXTERNAL_API_ERROR,
-        error
-      );
-    }
+  async getBiddingStrategyById(refreshToken: string, customerId: string, biddingStrategyId: string, loginCustomerId?: string) {
+    const options: CommonOptions = { refreshToken, customerId, loginCustomerId };
+    return this.biddingStrategyService.getBiddingStrategyById(options, biddingStrategyId);
   }
 
-  /**
-   * Pobierz informacje o koncie
-   */
-  async getAccountInfo() {
-    try {
-      const customer = this.getCustomerClient();
-      
-      // Użyj search zamiast list
-      const customerInfo = await customer.query(`
-        SELECT
-          customer.id,
-          customer.descriptive_name,
-          customer.currency_code
-        FROM customer
-        WHERE customer.id = ${this.defaultCustomerId}
-      `);
-      
-      return customerInfo;
-    } catch (error: any) {
-      console.error('Google Ads API error:', error);
-      throw new ApiError(
-        500,
-        `Nie udało się pobrać informacji o koncie: ${error.message || 'Nieznany błąd'}`,
-        ErrorCodes.EXTERNAL_API_ERROR,
-        error
-      );
-    }
+  async createBiddingStrategy(refreshToken: string, customerId: string, strategyData: CreateBiddingStrategyData, loginCustomerId?: string) {
+    const options: CommonOptions = { refreshToken, customerId, loginCustomerId };
+    return this.biddingStrategyService.createBiddingStrategy(options, strategyData);
+  }
+
+  // Funkcje dla budżetów kampanii
+  async getCampaignBudgets(refreshToken: string, customerId: string, loginCustomerId?: string) {
+    const options: CommonOptions = { refreshToken, customerId, loginCustomerId };
+    return this.campaignBudgetService.getCampaignBudgets(options);
+  }
+
+  async createCampaignBudget(refreshToken: string, customerId: string, budgetData: CampaignBudgetData, loginCustomerId?: string) {
+    const options: CommonOptions = { refreshToken, customerId, loginCustomerId };
+    return this.campaignBudgetService.createCampaignBudget(options, budgetData);
+  }
+
+  // Funkcje dla kampanii
+  async getCampaigns(refreshToken: string, customerId: string, loginCustomerId?: string) {
+    const options: CommonOptions = { refreshToken, customerId, loginCustomerId };
+    return this.campaignService.getCampaigns(options);
+  }
+
+  async createCampaign(refreshToken: string, customerId: string, campaignData: CampaignData, loginCustomerId?: string) {
+    const options: CommonOptions = { refreshToken, customerId, loginCustomerId };
+    return this.campaignService.createCampaign(options, campaignData);
+  }
+
+  // Funkcje dla grup reklam
+  async getAdGroups(refreshToken: string, customerId: string, campaignId?: string, loginCustomerId?: string) {
+    const options: CommonOptions = { refreshToken, customerId, loginCustomerId };
+    return this.adGroupService.getAdGroups(options, campaignId);
+  }
+
+  async createAdGroup(refreshToken: string, customerId: string, adGroupData: AdGroupData, loginCustomerId?: string) {
+    const options: CommonOptions = { refreshToken, customerId, loginCustomerId };
+    return this.adGroupService.createAdGroup(options, adGroupData);
   }
 }
 
