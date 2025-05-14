@@ -1,4 +1,4 @@
-// src/services/googleads/types/campaign-budget.types.ts
+// src/services/googleads/campaign-budget.types.ts
 import { CommonOptions } from './customer.types';
 
 /**
@@ -27,7 +27,8 @@ export interface CampaignBudgetResult {
  */
 export interface CampaignBudgetData {
   name: string;
-  amountMicros: number;
+  amountMicros?: number;
+  amount?: number; // Dodane pole do przyjmowania wartości w "normalnych" jednostkach
   deliveryMethod: 'STANDARD' | 'ACCELERATED';
   explicitlyShared?: boolean;
 }
