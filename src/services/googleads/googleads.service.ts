@@ -1,12 +1,12 @@
 // src/services/googleads/googleads.service.ts
 import { CustomerService } from './customer.service';
 import { BiddingStrategyService } from './bidding-strategy.service';
-import { CampaignBudgetService } from './campaign-budget.service';
+import { CampaignBudgetService } from './campaign-budget/campaign-budget.service';
 import { CampaignService } from './campaign.service';
 import { AdGroupService } from './ad-group.service';
 import { CommonOptions } from './customer.types';
 import { CreateBiddingStrategyData } from './bidding-strategy.types';
-import { CampaignBudgetData } from './campaign-budget.types';
+import { CampaignBudgetData } from './campaign-budget/campaign-budget.types';
 import { CampaignData } from './campaign.types';
 import { AdGroupData } from './ad-group.types';
 
@@ -67,6 +67,11 @@ export class GoogleAdsService {
   async getCampaignBudgets(refreshToken: string, customerId: string, loginCustomerId?: string) {
     const options: CommonOptions = { refreshToken, customerId, loginCustomerId };
     return this.campaignBudgetService.getCampaignBudgets(options);
+  }
+
+  async getCampaignBudgetById(refreshToken: string, customerId: string, budgetId: string, loginCustomerId?: string) {
+    const options: CommonOptions = { refreshToken, customerId, loginCustomerId };
+    return this.campaignBudgetService.getCampaignBudgetById(options, budgetId);
   }
 
   async createCampaignBudget(refreshToken: string, customerId: string, budgetData: CampaignBudgetData, loginCustomerId?: string) {

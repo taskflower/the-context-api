@@ -1,5 +1,5 @@
 // src/middleware/token-usage.middleware.ts
-import { Request, Response, NextFunction } from 'express';
+import { Response, NextFunction } from 'express';
 import { AuthRequest } from './auth.middleware';
 import { UserService } from '../services/user/user.service';
 import { ApiError, ErrorCodes } from '../errors/errors.utilsts';
