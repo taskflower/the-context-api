@@ -1,26 +1,8 @@
-// webAnalyzer.ts
+// src/services/analyzeWebsite/utils/webAnalyzer.ts
 import * as cheerio from 'cheerio';
 import TurndownService from 'turndown';
 
-import { SentimentAnalyzer } from './sentimentAnalyzer';
-import { TextProcessor } from './textProcessor';
-import { DictionaryLoader } from './dictionaryLoader';
-
 // types.ts
-export interface SentimentDictionary {
-    [word: string]: number;
-}
-
-export interface DictionarySet {
-    positive: SentimentDictionary;
-    negative: SentimentDictionary;
-}
-
-export interface CompleteWordDictionary {
-    sentiment: DictionarySet;
-    stopwords: string[];
-}
-
 export interface LinkInfo {
     url: string;
     text: string;
@@ -32,7 +14,7 @@ export interface ImageInfo {
     altText: string;
 }
 
-export interface TextMetrics {
+export interface PageMetrics {
     wordCount: number;
     charCount: number;
     paragraphCount: number;
@@ -41,97 +23,39 @@ export interface TextMetrics {
     sentiment: {
         score: number;
         comparative: number;
-        keywords: { word: string; sentiment: number }[];
+        keywords: Array<{ word: string; sentiment: number }>;
     };
     language: string;
 }
 
-export interface SentimentResult {
-    score: number;
-    details: Array<{ word: string; score: number }>;
-}
-
 export class WebPageAnalyzer {
     private readonly turndownService: TurndownService;
-    private readonly dictionaries: Record<string, CompleteWordDictionary> | null = null;
     private static instance: WebPageAnalyzer | null = null;
 
-    private constructor(dictionaries: Record<string, CompleteWordDictionary> | null) {
+    private constructor() {
         this.turndownService = new TurndownService({
             headingStyle: 'atx',
             bulletListMarker: '-',
         });
-        this.dictionaries = dictionaries;
     }
 
     static async create(dictionaryPath: string): Promise<WebPageAnalyzer> {
         if (!WebPageAnalyzer.instance) {
-            const dictionaries = await DictionaryLoader.loadDictionaries(dictionaryPath);
-            WebPageAnalyzer.instance = new WebPageAnalyzer(dictionaries);
+            WebPageAnalyzer.instance = new WebPageAnalyzer();
         }
         return WebPageAnalyzer.instance;
     }
 
     private async fetchPage(url: string): Promise<string> {
-        const response = await fetch(url);
-        if (!response.ok) {
-            throw new Error(`Failed to fetch ${url}: ${response.statusText}`);
+        try {
+            const response = await fetch(url);
+            if (!response.ok) {
+                throw new Error(`Failed to fetch ${url}: ${response.statusText}`);
+            }
+            return response.text();
+        } catch (error) {
+            throw new Error(`Nie można pobrać strony: ${error instanceof Error ? error.message : 'Nieznany błąd'}`);
         }
-        return response.text();
-    }
-
-    async analyzeTextMetrics(url: string): Promise<TextMetrics> {
-        const html = await this.fetchPage(url);
-        const $ = cheerio.load(html);
-        
-        $('script, style, meta, link').remove();
-        
-        const rawLanguage = $('html').attr('lang') || 'pl';
-        const language = rawLanguage.split('-')[0].toLowerCase();
-        
-        const text = $('body').text().trim();
-        const words = TextProcessor.tokenize(text);
-        const chars = text.replace(/\s/g, '');
-        
-        if (words.length === 0) {
-            throw new Error('No text content found on the page.');
-        }
-        
-        const stopwords = this.dictionaries?.[language]?.stopwords || [];
-        const filteredWords = TextProcessor.removeStopwords(words, stopwords);
-        
-        let sentiment = {
-            score: 0,
-            comparative: 0,
-            keywords: [] as { word: string; sentiment: number }[]
-        };
-
-        if (this.dictionaries?.[language]?.sentiment) {
-            const analyzer = new SentimentAnalyzer(
-                Object.fromEntries(
-                    Object.entries(this.dictionaries).map(([lang, dict]) => [lang, dict.sentiment])
-                )
-            );
-            const sentimentResult = analyzer.analyze(filteredWords, language);
-            sentiment = {
-                score: sentimentResult.score,
-                comparative: sentimentResult.score / filteredWords.length,
-                keywords: Array.from(new Set(filteredWords)).map(word => ({
-                    word,
-                    sentiment: sentimentResult.details.find(d => d.word === word)?.score || 0
-                }))
-            };
-        }
-        
-        return {
-            wordCount: words.length,
-            charCount: chars.length,
-            paragraphCount: $('p').length,
-            headingsCount: $('h1, h2, h3, h4, h5, h6').length,
-            averageWordLength: chars.length / words.length,
-            sentiment,
-            language: rawLanguage,
-        };
     }
 
     async htmlToMarkdown(url: string): Promise<{ markdown: string; images: ImageInfo[] }> {
@@ -195,5 +119,85 @@ export class WebPageAnalyzer {
         });
 
         return links;
+    }
+
+    async analyzeMetrics(url: string): Promise<PageMetrics> {
+        const html = await this.fetchPage(url);
+        const $ = cheerio.load(html);
+        
+        // Remove scripts, styles and hidden elements to get clean text
+        $('script, style, meta, link, [style*="display:none"], [style*="display: none"]').remove();
+        
+        // Get all text content
+        const textContent = $('body').text().trim();
+        
+        // Split into words and remove empty strings
+        const words = textContent.split(/\s+/).filter(word => word.length > 0);
+        
+        // Count characters (excluding whitespace)
+        const charCount = textContent.replace(/\s+/g, '').length;
+        
+        // Count paragraphs
+        const paragraphCount = $('p').length || textContent.split(/\n\s*\n/).length;
+        
+        // Count headings
+        const headingsCount = $('h1, h2, h3, h4, h5, h6').length;
+        
+        // Calculate average word length
+        const totalCharacters = words.reduce((sum, word) => sum + word.length, 0);
+        const averageWordLength = words.length > 0 ? totalCharacters / words.length : 0;
+        
+        // Simple sentiment analysis (basic implementation)
+        // In a real implementation, you would use a proper sentiment analysis library
+        const positiveWords = ['good', 'great', 'excellent', 'awesome', 'positive', 'happy', 'joy'];
+        const negativeWords = ['bad', 'poor', 'terrible', 'negative', 'sad', 'anger', 'hate'];
+        
+        let sentimentScore = 0;
+        const keywords: Array<{ word: string; sentiment: number }> = [];
+        
+        words.forEach(word => {
+            const lowerWord = word.toLowerCase();
+            if (positiveWords.includes(lowerWord)) {
+                sentimentScore += 1;
+                keywords.push({ word: lowerWord, sentiment: 1 });
+            } else if (negativeWords.includes(lowerWord)) {
+                sentimentScore -= 1;
+                keywords.push({ word: lowerWord, sentiment: -1 });
+            }
+        });
+        
+        // Guess the language - simplified example
+        const language = this.guessLanguage(textContent);
+        
+        return {
+            wordCount: words.length,
+            charCount,
+            paragraphCount,
+            headingsCount,
+            averageWordLength: parseFloat(averageWordLength.toFixed(2)),
+            sentiment: {
+                score: sentimentScore,
+                comparative: words.length > 0 ? parseFloat((sentimentScore / words.length).toFixed(3)) : 0,
+                keywords: keywords.slice(0, 10) // Limit to top 10 keywords
+            },
+            language
+        };
+    }
+    
+    private guessLanguage(text: string): string {
+        // Very simplified language detection - in a real app you would use a proper library
+        const englishPattern = /\b(the|and|is|in|to|of|a|for|that|this)\b/gi;
+        const polishPattern = /\b(jest|nie|to|się|w|na|z|do|że|i)\b/gi;
+        const germanPattern = /\b(der|die|das|und|ist|in|zu|den|dem|ein)\b/gi;
+        
+        const englishMatches = (text.match(englishPattern) || []).length;
+        const polishMatches = (text.match(polishPattern) || []).length;
+        const germanMatches = (text.match(germanPattern) || []).length;
+        
+        if (englishMatches > polishMatches && englishMatches > germanMatches) return 'en';
+        if (polishMatches > englishMatches && polishMatches > germanMatches) return 'pl';
+        if (germanMatches > englishMatches && germanMatches > polishMatches) return 'de';
+        
+        return 'en'; // Default to English
     }
 }

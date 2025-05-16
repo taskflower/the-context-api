@@ -33,6 +33,6 @@ export class WebsiteAnalysisService {
 
   async getMetrics(url: string) {
     const analyzer = await this.initializeAnalyzer();
-    return analyzer.analyzeTextMetrics(url);
+    return analyzer.analyzeMetrics(url);
   }
 }

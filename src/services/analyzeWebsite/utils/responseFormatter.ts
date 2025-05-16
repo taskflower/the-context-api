@@ -51,28 +51,40 @@ export class ResponseFormatter {
         `- Links with Images: ${data.withImages}\n\n` +
         `## Detailed Links\n\n`;
       
-      data.items.forEach((link: any) => {
-        markdown += `- [${link.text || 'No text'}](${link.url})` +
-          `${link.isExternal ? ' (external)' : ''}` +
-          `${link.hasImage ? ' (contains image)' : ''}\n`;
-      });
+      if (data.items && data.items.length > 0) {
+        data.items.forEach((link: any) => {
+          markdown += `- [${link.text || 'No text'}](${link.url})` +
+            `${link.isExternal ? ' (external)' : ''}` +
+            `${link.hasImage ? ' (contains image)' : ''}\n`;
+        });
+      } else {
+        markdown += "No links found on this page.\n";
+      }
     } else if (data.wordCount !== undefined) {
       // For metrics endpoint response
       markdown = `# Page Metrics\n\n` +
-        `- Word Count: ${data.wordCount}\n` +
-        `- Character Count: ${data.charCount}\n` +
-        `- Paragraph Count: ${data.paragraphCount}\n` +
-        `- Headings Count: ${data.headingsCount}\n` +
-        `- Average Word Length: ${data.averageWordLength.toFixed(2)}\n` +
+        `## Text Statistics\n\n` +
+        `- Words: ${data.wordCount}\n` +
+        `- Characters: ${data.charCount}\n` +
+        `- Paragraphs: ${data.paragraphCount}\n` +
+        `- Headings: ${data.headingsCount}\n` +
+        `- Average Word Length: ${data.averageWordLength}\n` +
         `- Language: ${data.language}\n\n` +
         `## Sentiment Analysis\n\n` +
-        `- Overall Score: ${data.sentiment.score.toFixed(2)}\n` +
-        `- Comparative Score: ${data.sentiment.comparative.toFixed(3)}\n\n` +
-        `### Key Words Sentiment\n\n`;
+        `- Score: ${data.sentiment.score}\n` +
+        `- Comparative: ${data.sentiment.comparative}\n\n`;
       
-      data.sentiment.keywords.forEach((keyword: any) => {
-        markdown += `- ${keyword.word}: ${keyword.sentiment.toFixed(2)}\n`;
-      });
+      if (data.sentiment.keywords && data.sentiment.keywords.length > 0) {
+        markdown += `### Sentiment Keywords\n\n`;
+        data.sentiment.keywords.forEach((keyword: { word: string; sentiment: number }) => {
+          markdown += `- ${keyword.word}: ${keyword.sentiment > 0 ? '😊' : '😟'} (${keyword.sentiment})\n`;
+        });
+      }
+    } else {
+      // Default case for unknown response formats
+      markdown = `# Analysis Results\n\n` + 
+        JSON.stringify(data, null, 2)
+          .replace(/```/g, '\\`\\`\\`'); // Escape code blocks
     }
 
     return markdown.trim();
